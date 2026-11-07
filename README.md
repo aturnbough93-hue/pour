@@ -57,21 +57,21 @@ archive, sign, or distribute the app.
 - ~30 seeded classic cocktails with measures in oz, dashes, parts, barspoons, countables
 - Home: real-time recipe search across name/ingredient/tag, filter chips, "What can I make" module driven by inventory, drink-card grid, pull-to-refresh
 - Recipe detail: right-aligned monospaced measures, sticky action bar (favorite / scale / timer / share), serving scaling + batch mode, oz ⇄ ml conversion incl. dashes and barspoons, per-recipe unit toggle, one-tap "add missing to shopping list"
-- My Bar: categorized inventory, in/out-of-stock toggles, low-stock flag, search, quick-add missing recipe ingredients
+- My Bar: categorized inventory, in/out-of-stock toggles, low-stock flag, search, quick-add missing recipe ingredients, barcode scan with confirm-before-add
+- Barcode scan stays on device: camera when the device allows it, a small offline bottle catalog, manual code entry when the camera is missing or denied, and the existing add-item sheet plus ingredient normalization when a code is unknown
 - Shopping list with purchased tracking
 - Custom recipe editor with glass-type picker mapped to SF Symbols
 - Timer view: large circular progress ring, haptic ticks at 10s/5s/done
 - Settings: manual dark/light/system appearance (persisted), preferred measurement unit (oz/ml) applied app-wide
 - Ingredient normalization: local alias map ("London Dry Gin", "Beefeater" → gin) powering matching, "What can I make", and search
 - Empty / error states throughout; everything works fully offline
-- XCTest coverage for unit conversion and ingredient normalization
+- XCTest coverage for unit conversion, ingredient normalization, and barcode parsing, catalog matching, confirm/add, and camera availability
 - `pour://` deep links (`pour://recipe?name=Negroni`, `pour://tab/bar`) as seams for future App Intents
 
 ### Stubbed entry points (clean seams, not functional)
 
 - AI Bartender Assistant (Pro) — toolbar/sheet entry point exists
 - Venue check-in / shift mode — model + entry point exist
-- Barcode scanning button on My Bar — placeholder sheet
 - "Pro" upsell surface
 
 ### Planned (out of scope for this build)

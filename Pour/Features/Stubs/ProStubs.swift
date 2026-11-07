@@ -70,39 +70,6 @@ struct VoiceSearchPlaceholderView: View {
     }
 }
 
-struct BarcodeScannerPlaceholderView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 20) {
-                Image(systemName: "barcode.viewfinder")
-                    .font(.system(size: 56, weight: .regular))
-                    .foregroundStyle(PourColor.accent)
-                    .accessibilityHidden(true)
-                Text("Barcode scanning")
-                    .font(.pourTitle2)
-                    .foregroundStyle(PourColor.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-                Text("Barcode scanning is coming soon. For now, use the + button in My Bar to add a bottle by name.")
-                    .font(.body)
-                    .foregroundStyle(PourColor.textSecondary)
-                    .multilineTextAlignment(.center)
-                Button("OK") { dismiss() }
-                    .buttonStyle(PourPrimaryButtonStyle())
-                    .padding(.top, 12)
-                    .accessibilityLabel("OK")
-                    .accessibilityAddTraits(.isButton)
-            }
-            .padding(32)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(PourColor.background)
-            .navigationTitle("Scan")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-    }
-}
-
 struct ProUpsellView: View {
     @Environment(\.dismiss) private var dismiss
 

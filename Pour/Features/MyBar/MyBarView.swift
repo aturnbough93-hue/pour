@@ -115,7 +115,7 @@ struct MyBarView: View {
             .safeAreaInset(edge: .top) { filterChips }
             .sheet(isPresented: $showAdd) { InventoryEditSheet(item: nil) }
             .sheet(item: $editingItem) { item in InventoryEditSheet(item: item) }
-            .sheet(isPresented: $showScanner) { BarcodeScannerPlaceholderView() }
+            .sheet(isPresented: $showScanner) { BarcodeScannerView() }
             .alert("Bar wasn’t updated", isPresented: $showSaveError) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -214,21 +214,38 @@ struct MyBarView: View {
     }
 }
 
+/// Prefill for the existing add sheet when a scan needs a name, or when the
+/// bartender already knows which bottle a code belongs to.
+struct InventorySeed: Equatable {
+    var name: String = ""
+    var barcode: String?
+    var scanNote: String?
+}
+
+enum InventoryEditResult: Equatable {
+    case saved
+    case alreadyInBar(ExistingBarcodeMatch)
+}
+
 // MARK: - Add / edit item sheet
 
 struct InventoryEditSheet: View {
     let item: InventoryItem?
+    var seed: InventorySeed?
+    var onFinished: ((InventoryEditResult) -> Void)?
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Query private var recipes: [Recipe]
     @Query private var inventory: [InventoryItem]
 
     @State private var showSaveError = false
+    @State private var duplicateOffer: ExistingBarcodeMatch?
     @State private var name = ""
     @State private var category: InventoryCategory = .other
     @State private var isInStock = true
     @State private var isLowStock = false
     @State private var canonicalOverride = ""
+    @State private var barcode = ""
 
     /// Canonical ingredients required by recipes but not in inventory — one-tap add.
     private var suggestedMissing: [String] {
@@ -245,18 +262,29 @@ struct InventoryEditSheet: View {
         return missing
     }
 
-    init(item: InventoryItem?) {
+    init(item: InventoryItem?, seed: InventorySeed? = nil, onFinished: ((InventoryEditResult) -> Void)? = nil) {
         self.item = item
-        _name = State(initialValue: item?.name ?? "")
-        _category = State(initialValue: item?.inventoryCategory ?? .other)
+        self.seed = seed
+        self.onFinished = onFinished
+        _name = State(initialValue: item?.name ?? seed?.name ?? "")
+        _category = State(initialValue: item?.inventoryCategory ?? IngredientNormalizer.category(for: seed?.name ?? ""))
         _isInStock = State(initialValue: item?.isInStock ?? true)
         _isLowStock = State(initialValue: item?.isLowStock ?? false)
         _canonicalOverride = State(initialValue: item?.canonicalOverride ?? "")
+        _barcode = State(initialValue: item?.barcode ?? seed?.barcode ?? "")
     }
 
     var body: some View {
         NavigationStack {
             Form {
+                if let note = seed?.scanNote {
+                    Section {
+                        Label(note, systemImage: "barcode.viewfinder")
+                            .font(.subheadline)
+                            .foregroundStyle(PourColor.textSecondary)
+                            .accessibilityLabel(note)
+                    }
+                }
                 Section("Item") {
                     TextField("Name (e.g. London Dry Gin)", text: $name)
                         .onChange(of: name) { _, new in
@@ -282,6 +310,14 @@ struct InventoryEditSheet: View {
                     Text("Matching")
                 } footer: {
                     Text("Maps to “\(canonicalOverride.isEmpty ? IngredientNormalizer.canonicalName(for: name) : IngredientNormalizer.normalize(canonicalOverride))” for matching. Leave blank to use the auto-detected canonical name.")
+                }
+                if !barcode.isEmpty {
+                    Section("Barcode") {
+                        Text(BarcodeFormatting.grouped(barcode))
+                            .font(.body.monospacedDigit())
+                            .foregroundStyle(PourColor.textPrimary)
+                            .accessibilityLabel("Barcode \(barcode)")
+                    }
                 }
                 if !suggestedMissing.isEmpty && item == nil {
                     Section("Missing from recipes") {
@@ -314,7 +350,12 @@ struct InventoryEditSheet: View {
             } message: {
                 Text("Your edits are still here. Check available device storage and try again.")
             }
-            .navigationTitle(item == nil ? "Add item" : "Edit item")
+            .sheet(item: $duplicateOffer) { match in
+                BarcodeExistingSheet(match: match) {
+                    applyDuplicateOffer(match)
+                }
+            }
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -323,25 +364,77 @@ struct InventoryEditSheet: View {
                         .accessibilityAddTraits(.isButton)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }
+                    Button(item == nil && seed?.barcode != nil ? "Add to My Bar" : "Save") { save() }
                         .disabled(IngredientNormalizer.normalize(name).isEmpty)
-                        .accessibilityLabel(item == nil ? "Add inventory item" : "Save item")
+                        .accessibilityLabel(saveAccessibilityLabel)
                         .accessibilityAddTraits(.isButton)
                 }
             }
         }
     }
 
+    private var navigationTitle: String {
+        if item != nil { return "Edit item" }
+        if seed?.barcode != nil { return "Confirm item" }
+        return "Add item"
+    }
+
+    private var saveAccessibilityLabel: String {
+        if item != nil { return "Save item" }
+        if seed?.barcode != nil { return "Add to My Bar" }
+        return "Add inventory item"
+    }
+
     private func save() {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         let override = IngredientNormalizer.normalize(canonicalOverride)
+        let cleanedBarcode = barcode.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rows = inventory.map { row in
+            (row, BarcodeStockSnapshot(item: row))
+        }
+        let stock = rows.map { $0.1 }
         if let item {
             item.name = trimmed
             item.category = category.rawValue
             item.isInStock = isInStock
             item.isLowStock = isLowStock
             item.canonicalOverride = override.isEmpty ? nil : override
+            if !cleanedBarcode.isEmpty {
+                item.barcode = cleanedBarcode
+            }
+        } else if !cleanedBarcode.isEmpty {
+            switch BarcodeResolver.saveUnknownCode(
+                name: trimmed,
+                barcode: cleanedBarcode,
+                isInStock: isInStock,
+                isLowStock: isLowStock,
+                stock: stock
+            ) {
+            case .insert(let confirmed):
+                let new = InventoryItem(name: confirmed.name, category: category, isInStock: confirmed.isInStock)
+                new.isLowStock = isLowStock
+                new.canonicalOverride = override.isEmpty ? nil : override
+                new.barcode = confirmed.barcode
+                modelContext.insert(new)
+            case .update(let match, let mutation):
+                guard let index = BarcodeResolver.locate(match, stock: stock) else {
+                    offerExisting(match)
+                    return
+                }
+                let existing = rows[index].0
+                existing.name = trimmed
+                existing.category = category.rawValue
+                existing.canonicalOverride = override.isEmpty ? nil : override
+                existing.isInStock = mutation.isInStock
+                existing.isLowStock = mutation.isLowStock
+                existing.barcode = mutation.barcode
+            case .offerExisting(let match):
+                offerExisting(match)
+                return
+            case .rejected:
+                return
+            }
         } else {
             let new = InventoryItem(name: trimmed, category: category, isInStock: isInStock)
             new.isLowStock = isLowStock
@@ -351,10 +444,53 @@ struct InventoryEditSheet: View {
         do {
             try modelContext.save()
             Haptics.success()
-            dismiss()
+            finish(.saved)
         } catch {
             modelContext.rollback()
             showSaveError = true
+        }
+    }
+
+    private func offerExisting(_ match: ExistingBarcodeMatch) {
+        Haptics.warning()
+        if onFinished != nil {
+            finish(.alreadyInBar(match))
+        } else {
+            duplicateOffer = match
+        }
+    }
+
+    private func applyDuplicateOffer(_ match: ExistingBarcodeMatch) {
+        let rows = inventory.map { row in
+            (row, BarcodeStockSnapshot(item: row))
+        }
+        let stock = rows.map { $0.1 }
+        guard let index = BarcodeResolver.locate(match, stock: stock) else { return }
+        let mutation = BarcodeResolver.mutation(match: match, row: stock[index], update: .confirmedSheet)
+        guard mutation.didChange else {
+            duplicateOffer = nil
+            return
+        }
+        let existing = rows[index].0
+        existing.isInStock = mutation.isInStock
+        existing.barcode = mutation.barcode
+        do {
+            try modelContext.save()
+            Haptics.success()
+            duplicateOffer = nil
+            dismiss()
+        } catch {
+            modelContext.rollback()
+            duplicateOffer = nil
+            showSaveError = true
+        }
+    }
+
+    private func finish(_ result: InventoryEditResult) {
+        if let onFinished {
+            onFinished(result)
+        } else {
+            dismiss()
         }
     }
 }

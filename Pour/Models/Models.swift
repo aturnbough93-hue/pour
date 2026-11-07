@@ -120,6 +120,19 @@ final class InventoryItem {
     var inventoryCategory: InventoryCategory {
         InventoryCategory(rawValue: category) ?? .other
     }
+
+    /// Stable identity for barcode matching. Two rows can share a display name;
+    /// scans have to update the row that was actually matched.
+    var barcodeRowID: String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        if let data = try? encoder.encode(persistentModelID),
+           let text = String(data: data, encoding: .utf8),
+           !text.isEmpty {
+            return text
+        }
+        return String(describing: persistentModelID)
+    }
 }
 
 @Model

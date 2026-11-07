@@ -24,6 +24,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSRequiresIPhoneOS: true
+        NSCameraUsageDescription: Pour uses the camera to scan bottle barcodes into My Bar. Codes are matched on this device and are not sent anywhere.
         UIRequiresFullScreen: true
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen:
